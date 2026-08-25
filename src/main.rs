@@ -1,7 +1,6 @@
 use std::env;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
-use std::os::unix::io::IntoRawFd;
 use std::path::PathBuf;
 use std::process::{self, Command, Stdio};
 
@@ -208,8 +207,16 @@ impl Shell {
 
         if let Some(ref input) = input_file {
             let file = File::open(input).map_err(|e| format!("Failed to open {}: {}", input, e))?;
-            use std::os::unix::io::FromRawFd;
-            child.stdin(unsafe { Stdio::from_raw_fd(file.into_raw_fd()) });
+            #[cfg(unix)]
+            use std::os::unix::io::{FromRawFd, IntoRawFd};
+            #[cfg(windows)]
+            use std::os::windows::io::{FromRawHandle, IntoRawHandle};
+
+            #[cfg(unix)]
+            let stdin = unsafe { Stdio::from_raw_fd(file.into_raw_fd()) };
+            #[cfg(windows)]
+            let stdin = unsafe { Stdio::from_raw_handle(file.into_raw_handle()) };
+            child.stdin(stdin);
         }
 
         if let Some(ref output) = output_file {
@@ -227,8 +234,16 @@ impl Shell {
                     .open(output)
                     .map_err(|e| format!("Failed to open {}: {}", output, e))?
             };
-            use std::os::unix::io::FromRawFd;
-            child.stdout(unsafe { Stdio::from_raw_fd(file.into_raw_fd()) });
+            #[cfg(unix)]
+            use std::os::unix::io::{FromRawFd, IntoRawFd};
+            #[cfg(windows)]
+            use std::os::windows::io::{FromRawHandle, IntoRawHandle};
+
+            #[cfg(unix)]
+            let stdout = unsafe { Stdio::from_raw_fd(file.into_raw_fd()) };
+            #[cfg(windows)]
+            let stdout = unsafe { Stdio::from_raw_handle(file.into_raw_handle()) };
+            child.stdout(stdout);
         }
 
         child.spawn().map_err(|e| format!("Failed to execute {}: {}", cmd, e))?;
@@ -288,10 +303,16 @@ impl Shell {
 
     fn cmd_cd(&mut self, args: &[String]) -> Result<(), String> {
         let dir = if args.is_empty() {
-            match env::var("HOME") {
-                Ok(home) => PathBuf::from(home),
-                Err(_) => PathBuf::from("/"),
-            }
+            env::var("HOME")
+                .or_else(|_| env::var("USERPROFILE"))
+                .map(PathBuf::from)
+                .unwrap_or_else(|_| {
+                    if cfg!(windows) {
+                        PathBuf::from("C:\\")
+                    } else {
+                        PathBuf::from("/")
+                    }
+                })
         } else {
             PathBuf::from(&args[0])
         };
