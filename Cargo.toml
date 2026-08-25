@@ -4,5 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-rustyline = "13"
-dirs = "5"
+rustyline = "18"
+dirs = "6"
+which = "8"
