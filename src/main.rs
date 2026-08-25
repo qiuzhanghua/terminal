@@ -4,6 +4,9 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::{self, Command, Stdio};
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 use rustyline::Editor;
 
 struct Shell {
@@ -402,6 +405,60 @@ impl Shell {
     }
 
     fn run_external_command(&self, cmd: &str, args: &[String]) -> Result<(), String> {
+        #[cfg(windows)]
+        {
+            let shell_aliases = ["powershell", "pwsh", "cmd", "cmd.exe", "powershell.exe", "pwsh.exe"];
+            if shell_aliases.iter().any(|&s| cmd.eq_ignore_ascii_case(s)) {
+                if cmd.eq_ignore_ascii_case("pwsh") || cmd.eq_ignore_ascii_case("pwsh.exe") {
+                    let mut child = Command::new("C:\\Program Files\\PowerShell\\7\\pwsh.exe");
+                    child.stdin(Stdio::inherit());
+                    child.stdout(Stdio::inherit());
+                    child.stderr(Stdio::inherit());
+
+                    let status = child
+                        .status()
+                        .map_err(|e| format!("Failed to execute {}: {}", cmd, e))?;
+
+                    if !status.success() {
+                        return Err(format!("Command {} exited with code {:?}", cmd, status.code()));
+                    }
+                    return Ok(());
+                } else if cmd.eq_ignore_ascii_case("powershell") || cmd.eq_ignore_ascii_case("powershell.exe") {
+                    let mut child = Command::new("cmd");
+                    child.args(&["/c", "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"]);
+                    child.stdin(Stdio::inherit());
+                    child.stdout(Stdio::inherit());
+                    child.stderr(Stdio::inherit());
+                    child.creation_flags(0x08000000);
+
+                    let status = child
+                        .status()
+                        .map_err(|e| format!("Failed to execute {}: {}", cmd, e))?;
+
+                    if !status.success() {
+                        return Err(format!("Command {} exited with code {:?}", cmd, status.code()));
+                    }
+                    return Ok(());
+                } else {
+                    let mut child = Command::new("cmd");
+                    child.args(args);
+                    child.stdin(Stdio::inherit());
+                    child.stdout(Stdio::inherit());
+                    child.stderr(Stdio::inherit());
+                    child.creation_flags(0x08000000);
+
+                    let status = child
+                        .status()
+                        .map_err(|e| format!("Failed to execute {}: {}", cmd, e))?;
+
+                    if !status.success() {
+                        return Err(format!("Command {} exited with code {:?}", cmd, status.code()));
+                    }
+                    return Ok(());
+                }
+            }
+        }
+
         let status = Command::new(cmd)
             .args(args)
             .status()
@@ -416,6 +473,21 @@ impl Shell {
 }
 
 fn main() {
-    let mut shell = Shell::new();
-    shell.run();
+    #[cfg(windows)]
+    {
+        let mut child = Command::new("C:\\Program Files\\PowerShell\\7\\pwsh.exe");
+        child.stdin(Stdio::inherit());
+        child.stdout(Stdio::inherit());
+        child.stderr(Stdio::inherit());
+        std::process::exit(match child.status() {
+            Ok(status) => status.code().unwrap_or(1) as i32,
+            Err(_) => 1,
+        });
+    }
+
+    #[cfg(not(windows))]
+    {
+        let mut shell = Shell::new();
+        shell.run();
+    }
 }
